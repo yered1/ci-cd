@@ -97,20 +97,16 @@ jobs:
           severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
         continue-on-error: true
 
-      # Always leave a VALID SARIF (write with flush-left heredoc; then JSON-validate)
+      # Always leave a VALID SARIF so upload never fails
       - name: Ensure SARIF exists (Trivy FS)
         if: always()
         run: |
           set -euo pipefail
           FILE="${{ github.workspace }}/trivy-fs.sarif"
           if [ ! -s "$FILE" ]; then
-cat > "$FILE" <<'JSON'
-{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy","informationUri":"https://github.com/aquasecurity/trivy"}},"results":[]}]} 
-JSON
+            printf '%s' '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy","informationUri":"https://github.com/aquasecurity/trivy"}},"results":[]}]}}' > "$FILE"
           fi
-          python3 - <<'PY' "$FILE"
-import json,sys; json.load(open(sys.argv[1])); print("SARIF OK")
-PY
+          python3 -c 'import json,sys; json.load(open(sys.argv[1])); print("SARIF OK")' "$FILE"
 
       - name: Upload SARIF (Trivy FS)
         if: always()
@@ -196,7 +192,7 @@ PY
       - name: Prepare ZAP rules.tsv (TAB-separated)
         run: |
           mkdir -p .zap
-          # real tabs between columns:
+          # real TABs between columns:
           printf '# ruleId\tthreshold\taction\n10063\tWARN\tIGNORE\n10054\tWARN\tIGNORE\n' > .zap/rules.tsv
 
       - name: Start Juice Shop
@@ -224,7 +220,7 @@ PY
       - name: Upload ZAP reports (artifact)
         uses: actions/upload-artifact@v4
         with:
-          name: zap
+          name: zap-baseline
           path: |
             ${{ github.workspace }}/zap.html
             ${{ github.workspace }}/zap.md

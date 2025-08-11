@@ -95,13 +95,25 @@ jobs:
           output: '${{ github.workspace }}/trivy-fs.sarif'
           ignore-unfixed: true
           severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
-        continue-on-error: true   # don't stop the job if Trivy fails early
+        continue-on-error: true
 
+      # Ensure we always upload a VALID SARIF (with a tool driver), even if Trivy didn't write one
       - name: Ensure SARIF exists (Trivy FS)
         if: always()
         run: |
-          test -f "${{ github.workspace }}/trivy-fs.sarif" \
-            || echo '{"version":"2.1.0","runs":[]}' > "${{ github.workspace }}/trivy-fs.sarif"
+          if [ ! -s "${{ github.workspace }}/trivy-fs.sarif" ]; then
+            cat > "${{ github.workspace }}/trivy-fs.sarif" <<'JSON'
+            {
+              "version": "2.1.0",
+              "runs": [
+                {
+                  "tool": { "driver": { "name": "trivy", "informationUri": "https://github.com/aquasecurity/trivy" } },
+                  "results": []
+                }
+              ]
+            }
+            JSON
+          fi
 
       - name: Upload SARIF (Trivy FS)
         if: always()
@@ -192,14 +204,16 @@ jobs:
             sleep 2
           done
 
-      - name: ZAP Baseline (no issue creation)
+      - name: ZAP Baseline (no issue/artifact)
         uses: zaproxy/action-baseline@v0.12.0
         with:
           target: 'http://localhost:3000'
           rules_file_name: '.zap/rules.tsv'
           cmd_options: '-a -m 1'
-          allow_issue_writing: false   # <--- avoid "Resource not accessible by integration"
-          token: ''                    # <--- disable issue creation explicitly
+          allow_issue_writing: false
+          token: ''
+          upload_artifact: false      # <- prevents the artifact upload error
+          artifact_name: 'zapscan'    # <- safe name in case you enable upload later
 
       - name: Stop
         if: always()

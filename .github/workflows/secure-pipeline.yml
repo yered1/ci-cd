@@ -97,23 +97,17 @@ jobs:
           severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
         continue-on-error: true
 
-      # Ensure we always upload a VALID SARIF (with a tool driver), even if Trivy didn't write one
+      # Always leave a VALID SARIF so upload never fails
       - name: Ensure SARIF exists (Trivy FS)
         if: always()
         run: |
-          if [ ! -s "${{ github.workspace }}/trivy-fs.sarif" ]; then
-            cat > "${{ github.workspace }}/trivy-fs.sarif" <<'JSON'
-            {
-              "version": "2.1.0",
-              "runs": [
-                {
-                  "tool": { "driver": { "name": "trivy", "informationUri": "https://github.com/aquasecurity/trivy" } },
-                  "results": []
-                }
-              ]
-            }
-            JSON
+          FILE="${{ github.workspace }}/trivy-fs.sarif"
+          if [ ! -s "$FILE" ]; then
+            printf '%s' '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy","informationUri":"https://github.com/aquasecurity/trivy"}},"results":[]}]}'
+            > "$FILE"
           fi
+          # quick sanity check
+          grep -q '"tool"' "$FILE" || (echo "Invalid SARIF" && cat "$FILE" && exit 1)
 
       - name: Upload SARIF (Trivy FS)
         if: always()
@@ -188,34 +182,46 @@ jobs:
         with:
           sarif_file: '${{ github.workspace }}/trivy-${{ matrix.service }}.sarif'
 
-  # ---- ZAP BASELINE (DAST) ----
+  # ---- ZAP BASELINE (DAST) — run via Docker, upload artifacts manually ----
   dast_zap_baseline:
     name: DAST (OWASP ZAP baseline) vs Juice Shop
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (for .zap/rules.tsv)
+      - name: Checkout (.zap/rules.tsv)
         uses: actions/checkout@v4
 
-      - name: Launch Juice Shop
+      - name: Start Juice Shop (user-defined network)
         run: |
-          docker run -d --rm -p 3000:3000 --name juice bkimminich/juice-shop:latest
+          docker network create zapnet || true
+          docker run -d --rm --name juice --network zapnet -p 3000:3000 bkimminich/juice-shop:latest
           for i in {1..30}; do
             if curl -sSf http://localhost:3000 >/dev/null; then echo "Juice Shop up"; break; fi
             sleep 2
           done
 
-      - name: ZAP Baseline (no issue/artifact)
-        uses: zaproxy/action-baseline@v0.12.0
-        with:
-          target: 'http://localhost:3000'
-          rules_file_name: '.zap/rules.tsv'
-          cmd_options: '-a -m 1'
-          allow_issue_writing: false
-          token: ''
-          upload_artifact: false      # <- prevents the artifact upload error
-          artifact_name: 'zapscan'    # <- safe name in case you enable upload later
+      - name: ZAP Baseline (Docker) -> reports in workspace
+        run: |
+          docker run --rm --network zapnet \
+            -v "${{ github.workspace }}:/zap/wrk" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+              -t "http://juice:3000" \
+              -c "/zap/wrk/.zap/rules.tsv" \
+              -a -m 1 \
+              -J "/zap/wrk/zap.json" \
+              -w "/zap/wrk/zap.md" \
+              -r "/zap/wrk/zap.html"
 
-      - name: Stop
+      - name: Upload ZAP reports (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-baseline
+          path: |
+            ${{ github.workspace }}/zap.html
+            ${{ github.workspace }}/zap.md
+            ${{ github.workspace }}/zap.json
+
+      - name: Stop Juice
         if: always()
-        run: docker stop juice
+        run: docker stop juice || true
 

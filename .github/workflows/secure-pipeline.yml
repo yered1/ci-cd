@@ -104,9 +104,11 @@ jobs:
           set -euo pipefail
           FILE="${{ github.workspace }}/trivy-fs.sarif"
           if [ ! -s "$FILE" ]; then
-            printf '%s' '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy","informationUri":"https://github.com/aquasecurity/trivy"}},"results":[]}]}}' > "$FILE"
+            printf '%s' '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy","informationUri":"https://github.com/aquasecurity/trivy"}},"results":[]}]}'
+            > "$FILE"
           fi
           python3 -c 'import json,sys; json.load(open(sys.argv[1])); print("SARIF OK")' "$FILE"
+
 
       - name: Upload SARIF (Trivy FS)
         if: always()
@@ -195,6 +197,9 @@ jobs:
           # real TABs between columns:
           printf '# ruleId\tthreshold\taction\n10063\tWARN\tIGNORE\n10054\tWARN\tIGNORE\n' > .zap/rules.tsv
 
+      - name: Make workspace writable for container
+        run: sudo chmod -R a+rwx "${{ github.workspace }}"
+
       - name: Start Juice Shop
         run: |
           docker network create zapnet || true
@@ -207,15 +212,17 @@ jobs:
       - name: ZAP Baseline (Docker) -> reports in workspace
         run: |
           docker run --rm --network zapnet \
+            --user root \
             -v "${{ github.workspace }}:/zap/wrk" \
+            -w /zap/wrk \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
               -t "http://juice:3000" \
-              -c "/zap/wrk/.zap/rules.tsv" \
+              -c ".zap/rules.tsv" \
               -a -m 1 \
-              -J "/zap/wrk/zap.json" \
-              -w "/zap/wrk/zap.md" \
-              -r "/zap/wrk/zap.html"
+              -J "zap.json" \
+              -w "zap.md" \
+              -r "zap.html"
 
       - name: Upload ZAP reports (artifact)
         uses: actions/upload-artifact@v4

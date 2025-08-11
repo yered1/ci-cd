@@ -1,0 +1,4 @@
+FROM dolevf/dvga:latest
+ENV WEB_HOST=0.0.0.0
+LABEL org.opencontainers.image.description="Wrapper image for DVGA (for demo signing/attestations)"
+EXPOSE 5013

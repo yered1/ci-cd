@@ -1,0 +1,3 @@
+FROM bkimminich/juice-shop:latest
+LABEL org.opencontainers.image.description="Wrapper image for OWASP Juice Shop (for demo signing/attestations)"
+EXPOSE 3000

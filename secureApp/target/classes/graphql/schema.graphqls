@@ -1,0 +1,2 @@
+type Order { id: ID!, itemName: String!, quantity: Int!, status: String! }
+type Query { myOrders: [Order!]!, order(id: ID!): Order }

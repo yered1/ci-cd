@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: secureapp
+  namespace: secureapp
+spec:
+  type: ClusterIP
+  selector: { app: secureapp }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

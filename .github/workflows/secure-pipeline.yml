@@ -68,6 +68,7 @@ jobs:
             --config p/owasp-top-ten \
             --config p/secrets \
             --config p/r2c-security-audit \
+            --config p/javascript \
             --error \
             --sarif --output "${{ github.workspace }}/semgrep.sarif"
 

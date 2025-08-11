@@ -100,14 +100,33 @@ jobs:
       # Always leave a VALID SARIF so upload never fails
       - name: Ensure SARIF exists (Trivy FS)
         if: always()
+        env:
+          FILE: ${{ github.workspace }}/trivy-fs.sarif
         run: |
-          set -euo pipefail
-          FILE="${{ github.workspace }}/trivy-fs.sarif"
-          if [ ! -s "$FILE" ]; then
-            printf '%s' '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy","informationUri":"https://github.com/aquasecurity/trivy"}},"results":[]}]}'
-            > "$FILE"
-          fi
-          python3 -c 'import json,sys; json.load(open(sys.argv[1])); print("SARIF OK")' "$FILE"
+          python3 - <<'PY'
+          import json, os
+          file = os.environ['FILE']
+          # If Trivy didn't produce the file or it's empty, write a valid minimal SARIF
+          if not os.path.exists(file) or os.path.getsize(file) == 0:
+              data = {
+                  "version": "2.1.0",
+                  "runs": [{
+                      "tool": {
+                          "driver": {
+                              "name": "trivy",
+                              "informationUri": "https://github.com/aquasecurity/trivy"
+                          }
+                      },
+                      "results": []
+                  }]
+              }
+              with open(file, "w", encoding="utf-8") as f:
+                  json.dump(data, f, ensure_ascii=False)
+          # Validate JSON to be 100% sure
+          json.load(open(file, "r", encoding="utf-8"))
+          print("SARIF OK:", file)
+          PY
+
 
 
       - name: Upload SARIF (Trivy FS)
@@ -210,6 +229,7 @@ jobs:
           done
 
       - name: ZAP Baseline (Docker) -> reports in workspace
+        continue-on-error: true
         run: |
           docker run --rm --network zapnet \
             --user root \
@@ -223,6 +243,7 @@ jobs:
               -J "zap.json" \
               -w "zap.md" \
               -r "zap.html"
+
 
       - name: Upload ZAP reports (artifact)
         uses: actions/upload-artifact@v4

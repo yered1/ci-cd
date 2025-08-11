@@ -97,17 +97,20 @@ jobs:
           severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
         continue-on-error: true
 
-      # Always leave a VALID SARIF so upload never fails
+      # Always leave a VALID SARIF (write with flush-left heredoc; then JSON-validate)
       - name: Ensure SARIF exists (Trivy FS)
         if: always()
         run: |
+          set -euo pipefail
           FILE="${{ github.workspace }}/trivy-fs.sarif"
           if [ ! -s "$FILE" ]; then
-            printf '%s' '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy","informationUri":"https://github.com/aquasecurity/trivy"}},"results":[]}]}'
-            > "$FILE"
+cat > "$FILE" <<'JSON'
+{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"trivy","informationUri":"https://github.com/aquasecurity/trivy"}},"results":[]}]} 
+JSON
           fi
-          # quick sanity check
-          grep -q '"tool"' "$FILE" || (echo "Invalid SARIF" && cat "$FILE" && exit 1)
+          python3 - <<'PY' "$FILE"
+import json,sys; json.load(open(sys.argv[1])); print("SARIF OK")
+PY
 
       - name: Upload SARIF (Trivy FS)
         if: always()
@@ -182,15 +185,21 @@ jobs:
         with:
           sarif_file: '${{ github.workspace }}/trivy-${{ matrix.service }}.sarif'
 
-  # ---- ZAP BASELINE (DAST) — run via Docker, upload artifacts manually ----
+  # ---- ZAP BASELINE (DAST) via Docker ----
   dast_zap_baseline:
     name: DAST (OWASP ZAP baseline) vs Juice Shop
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (.zap/rules.tsv)
+      - name: Checkout (for workspace)
         uses: actions/checkout@v4
 
-      - name: Start Juice Shop (user-defined network)
+      - name: Prepare ZAP rules.tsv (TAB-separated)
+        run: |
+          mkdir -p .zap
+          # real tabs between columns:
+          printf '# ruleId\tthreshold\taction\n10063\tWARN\tIGNORE\n10054\tWARN\tIGNORE\n' > .zap/rules.tsv
+
+      - name: Start Juice Shop
         run: |
           docker network create zapnet || true
           docker run -d --rm --name juice --network zapnet -p 3000:3000 bkimminich/juice-shop:latest
@@ -215,11 +224,13 @@ jobs:
       - name: Upload ZAP reports (artifact)
         uses: actions/upload-artifact@v4
         with:
-          name: zap-baseline
+          name: zap
           path: |
             ${{ github.workspace }}/zap.html
             ${{ github.workspace }}/zap.md
             ${{ github.workspace }}/zap.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Stop Juice
         if: always()
